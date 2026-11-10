@@ -41,7 +41,7 @@ The upstream docs say SWD is on `TP80`/`TP81`. On this fork's REV.5
 - The top side has other pads whose small, upside-down labels are easy to
   misread as TP80/TP81. Those are not SWD.
 
-![SWD pads on the underside of the main board](docs/images/swd-pads-underside.jpg)
+![SWD pads on the underside of the main board](docs/images/swd-test-points.jpg)
 
 ### Windows and Flipper Zero
 

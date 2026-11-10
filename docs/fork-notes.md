@@ -15,7 +15,7 @@ pads with **`TP103` / `TP104`** (debug UART):
 - The **top two** pads of the group are SWD (`TP61`, then `TP60`). The bottom
   two are `TP104` / `TP103` (UART, optional).
 
-![SWD pads on the underside of the main board](images/swd-pads-underside.jpg)
+![SWD pads on the underside of the main board](images/swd-test-points.jpg)
 
 Watch out for the top side of the board. It has *other* small pads whose
 upside-down labels are easy to misread as TP80/TP81 (for example a
