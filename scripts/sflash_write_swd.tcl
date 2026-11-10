@@ -211,6 +211,8 @@ proc sflash_read_file { filename src_address length } {
 
     set out [open $filename w]
     close $out
+    # Chunk scratch file next to the output (portable; /tmp does not exist on Windows).
+    set chunk_file "${filename}.chunk"
 
     set pos 0
     puts "Total read size is $length bytes from [format 0x%x $src_address]"
@@ -220,8 +222,9 @@ proc sflash_read_file { filename src_address length } {
         puts "reading $chunk bytes from [format 0x%x [expr { $src_address + $pos }]]"
         sflash_stub_command "" 0 $chunk [expr { $src_address + $pos }] $COMMAND_READ
         halt
-        dump_image "/tmp/sflash_read_chunk.bin" $data_loc $chunk
-        set in [open "/tmp/sflash_read_chunk.bin" rb]
+        dump_image $chunk_file $data_loc $chunk
+        set in [open $chunk_file rb]
+        fconfigure $in -translation binary
         set data [read $in]
         close $in
         set out [open $filename ab]
@@ -230,6 +233,6 @@ proc sflash_read_file { filename src_address length } {
         close $out
         set pos [expr { $pos + $chunk }]
     }
-    file delete -force "/tmp/sflash_read_chunk.bin"
+    file delete -force $chunk_file
     puts "sflash_read_file: done ($length bytes read from [format 0x%x $src_address])"
 }
