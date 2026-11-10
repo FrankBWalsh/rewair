@@ -161,3 +161,25 @@ void sens_compute_score( const sens_values_t* sens, sens_score_t* out )
     out->score = penalty < 100u ? 100u - penalty : 0u;
     out->color = score_color( out->score );
 }
+
+static int32_t subtract_clamped( int32_t value, int32_t offset )
+{
+    if ( offset <= 0 )
+    {
+        return value;
+    }
+    return value > offset ? value - offset : 0;
+}
+
+void sens_apply_offsets( sens_values_t* sens, int32_t dust_offset_centi,
+                         int32_t voc_offset_centi )
+{
+    if ( ( sens->seen & SENS_DUST ) != 0u )
+    {
+        sens->dust = subtract_clamped( sens->dust, dust_offset_centi );
+    }
+    if ( ( sens->seen & SENS_VOC ) != 0u )
+    {
+        sens->voc = subtract_clamped( sens->voc, voc_offset_centi );
+    }
+}

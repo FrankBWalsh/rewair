@@ -250,6 +250,68 @@ import './rw-system.js'; // registers RW.FirmwareModal / RW.ResetModal
       </div>`;
   }
 
+  function CalibrationModal({ initial, onClose, onSaved }) {
+    const [cfg, setCfg] = useState(() => Object.assign({
+      dust_offset: 0, voc_offset: 0, hide_clock: false,
+      dust_offset_max: 250, voc_offset_max: 60000
+    }, initial || {}));
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState(null);
+    const patch = (key, value) => setCfg((old) => Object.assign({}, old, { [key]: value }));
+    const fmt = (v) => (typeof v === 'number' ? Math.round(v * 10) / 10 : '—');
+
+    const save = () => {
+      const dust = Number(cfg.dust_offset);
+      const voc = Number(cfg.voc_offset);
+      if (!Number.isInteger(dust) || dust < 0 || dust > cfg.dust_offset_max) {
+        setErr(`Dust offset must be a whole number from 0 to ${cfg.dust_offset_max}.`); return;
+      }
+      if (!Number.isInteger(voc) || voc < 0 || voc > cfg.voc_offset_max) {
+        setErr(`VOC offset must be a whole number from 0 to ${cfg.voc_offset_max}.`); return;
+      }
+      setSaving(true); setErr(null);
+      RewairAPI.setCalibration({ dust_offset: dust, voc_offset: voc, hide_clock: !!cfg.hide_clock })
+        .then((next) => { setSaving(false); onSaved(next); onClose(); },
+          (e) => { setSaving(false); setErr(e.message); });
+    };
+
+    return html`
+      <div class="overlay" onClick=${(e) => !saving && e.target.classList.contains('overlay') && onClose()}>
+        <div class="modal mqtt-modal" role="dialog" aria-label="Sensor calibration and display">
+          <div class="modal-head"><h2>Calibration & display</h2>
+            ${!saving && html`<button class="modal-x" onClick=${onClose}>✕</button>`}</div>
+          <div class="modal-body">
+            <p class="mqtt-note">Offsets are subtracted from the sensor readings (never below zero) before the
+              score, the front display, this page and MQTT see them. To pick a value, let the monitor sit in clean
+              air and use its uncalibrated reading as the offset.</p>
+
+            <div class="mqtt-grid">
+              <label class="mqtt-field"><span>Dust offset <small>µg/m³ · now reads ${cfg.uncalibrated_valid ? fmt(cfg.dust_uncalibrated) : '—'} uncalibrated</small></span>
+                <input class="field" type="number" min="0" max=${cfg.dust_offset_max} step="1" value=${cfg.dust_offset}
+                  onInput=${(e) => patch('dust_offset', e.target.value)} /></label>
+              <label class="mqtt-field"><span>VOC offset <small>ppb · now reads ${cfg.uncalibrated_valid ? fmt(cfg.voc_uncalibrated) : '—'} uncalibrated</small></span>
+                <input class="field" type="number" min="0" max=${cfg.voc_offset_max} step="1" value=${cfg.voc_offset}
+                  onInput=${(e) => patch('voc_offset', e.target.value)} /></label>
+            </div>
+
+            <label class="mqtt-check">
+              <input type="checkbox" checked=${cfg.hide_clock}
+                onChange=${(e) => patch('hide_clock', e.target.checked)} />
+              <span><strong>Hide the clock on the front display</strong><small>Stops sending the time to the
+                display board. Unplug the monitor for a few seconds after enabling so it forgets the time it
+                already has.</small></span>
+            </label>
+
+            ${err && html`<span class="modal-err">${err}</span>`}
+            <div class="join-actions">
+              <button class="btn" disabled=${saving} onClick=${onClose}>Cancel</button>
+              <button class="btn primary" disabled=${saving} onClick=${save}>${saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
   /* ---------- the one row component ---------- */
   /* editable rows: whole row clickable + chevron ('rows' model) */
   function Row({ id, name, sub, ctrl, editor, below, open, setOpen }) {
@@ -285,13 +347,28 @@ import './rw-system.js'; // registers RW.FirmwareModal / RW.ResetModal
     const [resetOpen, setResetOpen] = useState(false);
     const [mqttOpen, setMqttOpen] = useState(false);
     const [mqtt, setMqtt] = useState(null);
+    const [calOpen, setCalOpen] = useState(false);
+    const [cal, setCal] = useState(null);
     const now = RW.deviceNow(status);
 
     useEffect(() => {
       let alive = true;
       RewairAPI.mqtt().then((value) => alive && setMqtt(value), () => {});
+      RewairAPI.calibration().then((value) => alive && setCal(value), () => alive && setCal(false));
       return () => { alive = false; };
     }, []);
+
+    const openCalibration = () => {
+      /* refresh so the modal shows current uncalibrated readings */
+      RewairAPI.calibration().then((value) => { setCal(value); setCalOpen(true); }, () => setCalOpen(true));
+    };
+    const calSub = cal === null ? 'Loading…'
+      : cal === false ? 'Not available on this connection'
+        : [
+          cal.dust_offset ? `Dust −${cal.dust_offset}` : null,
+          cal.voc_offset ? `VOC −${cal.voc_offset}` : null,
+          cal.hide_clock ? 'Clock hidden' : null
+        ].filter(Boolean).join(' · ') || 'No adjustments';
 
     const tzSub = st.tz_offset == null ? 'Not set'
       : direct
@@ -354,6 +431,10 @@ import './rw-system.js'; // registers RW.FirmwareModal / RW.ResetModal
           ctrl=${html`${mqtt && mqtt.connected && html`<span class="badge on">Connected</span>`}
             <button class="btn" onClick=${stopBtn(() => setMqttOpen(true))}>Configure…</button>`} />
 
+        <${Row} id="calibration" name="Calibration & display" sub=${calSub}
+          open=${open} setOpen=${setOpen}
+          ctrl=${cal !== false && html`<button class="btn" onClick=${stopBtn(openCalibration)}>Configure…</button>`} />
+
         <${Row} id="fw" name="Firmware" open=${open} setOpen=${setOpen}
           ctrl=${html`<span class="set-val">${status.fw}</span>
             <button class="btn" onClick=${stopBtn(() => setFwOpen(true))}>Update…</button>`} />
@@ -366,6 +447,7 @@ import './rw-system.js'; // registers RW.FirmwareModal / RW.ResetModal
 
       ${fwOpen && html`<${RW.FirmwareModal} status=${status} refresh=${refresh} onClose=${() => setFwOpen(false)} />`}
       ${mqttOpen && html`<${MQTTModal} initial=${mqtt} onSaved=${setMqtt} onClose=${() => setMqttOpen(false)} />`}
+      ${calOpen && html`<${CalibrationModal} initial=${cal || null} onSaved=${setCal} onClose=${() => setCalOpen(false)} />`}
       ${resetOpen && html`<${RW.ResetModal} refresh=${refresh} onClose=${() => setResetOpen(false)} />`}`;
   };
 })(RW);

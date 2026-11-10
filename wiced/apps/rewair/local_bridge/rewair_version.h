@@ -6,5 +6,5 @@
 #if defined( REWAIR_RELEASE_BUILD )
 #define REWAIR_FW_VERSION "rewair " REWAIR_FW_VERSION_NUMBER
 #else
-#define REWAIR_FW_VERSION "rewair " REWAIR_FW_VERSION_NUMBER "-dev"
+#define REWAIR_FW_VERSION "rewair " REWAIR_FW_VERSION_NUMBER "-dev.cal1"
 #endif

@@ -36,6 +36,7 @@
 #include "web_api.h"
 #include "rewair_net_mode.h"
 #include "rewair_mqtt.h"
+#include "rewair_calib.h"
 #include "spi_flash.h"
 #include "spi_flash_internal.h" /* device_id_t + sflash_read_ID (on GLOBAL_INCLUDES via drivers/spi_flash component) */
 
@@ -910,7 +911,7 @@ static void sensor_maybe_nudge_boot( uint32_t now_ms )
                 (unsigned long)SENSOR_NETW_NUDGE_MAX );
         send_netw_up( );
 
-        if ( sensor_disp_clock_canary_sent == 0u )
+        if ( sensor_disp_clock_canary_sent == 0u && rewair_calib_hide_clock( ) == 0u )
         {
             sensor_disp_clock_canary_sent = 1u;
             wiced_rtos_delay_milliseconds( 20u );
@@ -1129,6 +1130,8 @@ void application_start( void )
         printf( "settings init failed\n" );
         return;
     }
+
+    rewair_calib_init( );
 
     setvbuf( stdin, NULL, _IONBF, 0 );
     setvbuf( stdout, NULL, _IONBF, 0 );

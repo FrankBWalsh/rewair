@@ -46,3 +46,8 @@ uint32_t penalty_above( int32_t value, int32_t good_max, int32_t full_bad_delta,
 void sens_parse_pair( sens_values_t* sens, const char* key, const char* value );
 char* score_color( uint32_t score );
 void sens_compute_score( const sens_values_t* sens, sens_score_t* out );
+
+/* Subtracts user calibration offsets (centi-units) from dust and VOC when
+ * those readings are present, clamping at zero. */
+void sens_apply_offsets( sens_values_t* sens, int32_t dust_offset_centi,
+                         int32_t voc_offset_centi );

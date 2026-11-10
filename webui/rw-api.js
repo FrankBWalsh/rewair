@@ -186,6 +186,8 @@ const RewairAPI = {
   },
   mqtt: () => req('/api/mqtt'),
   setMQTT: (patch) => post('/api/mqtt', patch),
+  calibration: () => req('/api/calibration'),
+  setCalibration: (patch) => post('/api/calibration', patch),
   setDisp: (mode) => post('/api/disp', { mode }),
   setTime: (epoch) => post('/api/time', { epoch }),
   update: updateFirmware,

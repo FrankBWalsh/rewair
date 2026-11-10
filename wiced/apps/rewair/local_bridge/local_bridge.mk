@@ -5,6 +5,7 @@ $(NAME)_SOURCES := local_bridge.c \
                    rewair_drops.c \
                    rewair_tz.c \
                    rewair_settings.c \
+                   rewair_calib.c \
                    rewair_json.c \
                    rewair_api.c \
                    rewair_ble_proto.c \

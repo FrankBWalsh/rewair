@@ -8,6 +8,7 @@
 #include "rewair_json.h"
 #include "rewair_api.h"
 #include "rewair_settings.h"
+#include "rewair_calib.h"
 #include "rewair_tz.h"
 #include "rewair_frames.h"
 #include "rewair_wifi_dct.h"
@@ -806,6 +807,129 @@ static int32_t api_mqtt_handler( const char* url, wiced_http_response_stream_t* 
     return 0;
 }
 
+/* ---- GET/POST /api/calibration ----
+ * dust_offset (ug/m3) and voc_offset (ppb) are subtracted from the processed
+ * F103 readings before scoring/display/publishing; hide_clock withholds TIME
+ * from the display board. GET also reports the latest uncalibrated readings
+ * so a user can pick offsets from a clean-air baseline. */
+static void api_calibration_send_status( wiced_http_response_stream_t* stream )
+{
+    rewair_calib_t calib;
+    int32_t dust_raw = 0;
+    int32_t voc_raw = 0;
+    uint32_t valid = 0u;
+    char body[256];
+    int length;
+
+    rewair_calib_get( &calib );
+    rewair_calib_get_uncalibrated( &dust_raw, &voc_raw, &valid );
+    length = snprintf(
+        body, sizeof( body ),
+        "{\"dust_offset\":%lu,\"voc_offset\":%lu,\"hide_clock\":%s,"
+        "\"dust_offset_max\":%u,\"voc_offset_max\":%u,"
+        "\"uncalibrated_valid\":%s,\"dust_uncalibrated\":%ld.%02ld,"
+        "\"voc_uncalibrated\":%ld.%02ld}",
+        (unsigned long)calib.dust_offset, (unsigned long)calib.voc_offset,
+        calib.hide_clock != 0u ? "true" : "false",
+        REWAIR_CALIB_DUST_OFFSET_MAX, REWAIR_CALIB_VOC_OFFSET_MAX,
+        valid != 0u ? "true" : "false",
+        (long)( dust_raw > 0 ? dust_raw / 100 : 0 ), (long)( dust_raw > 0 ? dust_raw % 100 : 0 ),
+        (long)( voc_raw > 0 ? voc_raw / 100 : 0 ), (long)( voc_raw > 0 ? voc_raw % 100 : 0 ) );
+    if ( length < 0 || (uint32_t)length >= sizeof( body ) )
+    {
+        api_send_error( stream, HTTP_HEADER_500, "calibration status too large" );
+        return;
+    }
+    api_send( stream, HTTP_HEADER_200, "application/json", body, (uint32_t)length );
+}
+
+static int32_t api_calibration_handler( const char* url, wiced_http_response_stream_t* stream,
+                                        void* arg, wiced_http_message_body_t* http_data )
+{
+    char body[API_BODY_MAX];
+    rewair_calib_t calib;
+    uint8_t previous_hide;
+    uint32_t number;
+    uint8_t boolean;
+    int length;
+    int got;
+    int result;
+
+    (void)url; (void)arg;
+    if ( method_is( http_data, WICED_HTTP_GET_REQUEST ) )
+    {
+        api_calibration_send_status( stream );
+        return 0;
+    }
+    if ( !method_is( http_data, WICED_HTTP_POST_REQUEST ) )
+    {
+        api_send_error( stream, HTTP_HEADER_405, "GET or POST only" );
+        return 0;
+    }
+    length = api_read_body( http_data, body, sizeof( body ), stream );
+    if ( length < 0 )
+    {
+        return 0;
+    }
+    rewair_calib_get( &calib );
+    previous_hide = calib.hide_clock;
+
+    got = rewair_req_get_u32( body, (uint32_t)length, "dust_offset", &number );
+    if ( got < 0 )
+    {
+        api_send_error( stream, HTTP_HEADER_400, "malformed body" );
+        return 0;
+    }
+    if ( got == 1 )
+    {
+        if ( number > REWAIR_CALIB_DUST_OFFSET_MAX )
+        {
+            api_send_error( stream, HTTP_HEADER_400, "dust_offset must be 0..250" );
+            return 0;
+        }
+        calib.dust_offset = number;
+    }
+    if ( rewair_req_get_u32( body, (uint32_t)length, "voc_offset", &number ) == 1 )
+    {
+        if ( number > REWAIR_CALIB_VOC_OFFSET_MAX )
+        {
+            api_send_error( stream, HTTP_HEADER_400, "voc_offset must be 0..60000" );
+            return 0;
+        }
+        calib.voc_offset = number;
+    }
+    if ( rewair_req_get_bool( body, (uint32_t)length, "hide_clock", &boolean ) == 1 )
+    {
+        calib.hide_clock = boolean != 0u ? 1u : 0u;
+    }
+
+    result = rewair_calib_set( &calib );
+    if ( result == -1 )
+    {
+        api_send_error( stream, HTTP_HEADER_400, "invalid calibration" );
+        return 0;
+    }
+    if ( result != 0 )
+    {
+        api_send_error( stream, HTTP_HEADER_500, "calibration save failed" );
+        return 0;
+    }
+
+    /* Turning the clock back on: resend TIME now rather than waiting for the
+     * next periodic sync, so the panel recovers immediately. */
+    if ( previous_hide != 0u && calib.hide_clock == 0u )
+    {
+        wiced_utc_time_t now = 0u;
+        if ( wiced_time_get_utc_time( &now ) == WICED_SUCCESS && now > 1600000000u )
+        {
+            send_time_context( (uint32_t)now );
+        }
+    }
+
+    api_calibration_send_status( stream );
+    return 0;
+}
+
 /* ---- POST /api/time ---- */
 static int32_t api_time_handler( const char* url, wiced_http_response_stream_t* stream,
                                  void* arg, wiced_http_message_body_t* http_data )
@@ -1573,6 +1697,8 @@ static START_OF_HTTP_PAGE_DATABASE( api_pages )
       .url_content.dynamic_data = { api_settings_handler, NULL } },
     { "/api/mqtt",      "application/json", WICED_RAW_DYNAMIC_URL_CONTENT,
       .url_content.dynamic_data = { api_mqtt_handler, NULL } },
+    { "/api/calibration", "application/json", WICED_RAW_DYNAMIC_URL_CONTENT,
+      .url_content.dynamic_data = { api_calibration_handler, NULL } },
     { "/api/time",      "application/json", WICED_RAW_DYNAMIC_URL_CONTENT,
       .url_content.dynamic_data = { api_time_handler, NULL } },
     { "/api/disp",      "application/json", WICED_RAW_DYNAMIC_URL_CONTENT,
@@ -1600,6 +1726,8 @@ static START_OF_HTTP_PAGE_DATABASE( api_pages )
       .url_content.dynamic_data = { api_settings_handler, NULL } },
     { "/api/mqtt",      "text/plain", WICED_RAW_DYNAMIC_URL_CONTENT,
       .url_content.dynamic_data = { api_mqtt_handler, NULL } },
+    { "/api/calibration", "text/plain", WICED_RAW_DYNAMIC_URL_CONTENT,
+      .url_content.dynamic_data = { api_calibration_handler, NULL } },
     { "/api/time",      "text/plain", WICED_RAW_DYNAMIC_URL_CONTENT,
       .url_content.dynamic_data = { api_time_handler, NULL } },
     { "/api/disp",      "text/plain", WICED_RAW_DYNAMIC_URL_CONTENT,

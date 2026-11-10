@@ -134,6 +134,29 @@ int main( void )
     assert( centi_to_int( -2250 ) == -23 ); /* -0.5 rounds away from zero */
     assert( centi_to_int( 0 ) == 0 );
 
+    /* --- sens_apply_offsets: subtract, clamp at zero, only when seen --- */
+    {
+        sens_values_t sens;
+        memset( &sens, 0, sizeof( sens ) );
+        sens.seen = SENS_DUST | SENS_VOC;
+        sens.dust = 12500;   /* 125.00 ug/m3 */
+        sens.voc = 30000;    /* 300 ppb */
+        sens_apply_offsets( &sens, 11000, 50000 );
+        assert( sens.dust == 1500 );   /* 125 - 110 = 15 */
+        assert( sens.voc == 0 );       /* clamped, never negative */
+
+        sens.dust = 4200;
+        sens_apply_offsets( &sens, 0, 0 );
+        assert( sens.dust == 4200 );   /* zero offset is a no-op */
+
+        sens.seen = SENS_VOC;          /* dust not present this frame */
+        sens.dust = 4200;
+        sens.voc = 900;
+        sens_apply_offsets( &sens, 1000, 100 );
+        assert( sens.dust == 4200 );
+        assert( sens.voc == 800 );
+    }
+
     printf( "test_score OK\n" );
     return 0;
 }

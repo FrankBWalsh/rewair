@@ -12,6 +12,7 @@
 #include "rewair_walltime.h"
 #include "rewair_state.h"
 #include "rewair_settings.h"
+#include "rewair_calib.h"
 #include "rewair_frame_rx.h" /* SENSOR_PAYLOAD_MAX, shared frame-size limit */
 
 wiced_mutex_t sensor_uart_tx_mutex;
@@ -256,6 +257,16 @@ static void send_time_from_rule( const rewair_tz_rule_t* rule, uint32_t utc_seco
     uint8_t dst = 0u;
     char* fields[] = { "time", time_value };
 
+    /* "Hide clock": the stock F103 only renders its clock once it has a valid
+     * RTC from TIME (it logs "Clock invalid display" otherwise), so withholding
+     * TIME keeps the clock off the panel. TINF is still sent because the F103
+     * may want timezone context during boot. */
+    if ( rewair_calib_hide_clock( ) != 0u )
+    {
+        printf( "[time] TIME withheld (hide_clock)\n" );
+        return;
+    }
+
     rewair_tz_eval( rule, utc_seconds, &offset_min, &dst );
     compact_utc_time_with_offset( utc_seconds, (int32_t)offset_min * 60, time_value );
     sensor_send_frame( "TIME", fields, (uint32_t)( sizeof( fields ) / sizeof( fields[0] ) ) );
@@ -394,6 +405,17 @@ void send_scor_from_sens( const sens_values_t* sens )
     char voc_value_buf[12];
     char dust_value_buf[12];
     sens_score_t computed;
+    sens_values_t adjusted;
+    rewair_calib_t calib;
+
+    /* Apply user calibration once, here, so the score, the F103 display,
+     * the API/SSE status, MQTT and BLE all see the same adjusted values. */
+    rewair_calib_note_uncalibrated( sens->dust, sens->voc, sens->seen & ( SENS_DUST | SENS_VOC ) );
+    rewair_calib_get( &calib );
+    adjusted = *sens;
+    sens_apply_offsets( &adjusted, (int32_t)calib.dust_offset * 100,
+                        (int32_t)calib.voc_offset * 100 );
+    sens = &adjusted;
 
     sens_compute_score( sens, &computed );
 
